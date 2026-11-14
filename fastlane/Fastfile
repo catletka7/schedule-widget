@@ -1,0 +1,82 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build ScheduleWidget IPA for development deployment"
+  lane :build do
+    # Setup keychain for CI
+    create_keychain(
+      name: "build.keychain",
+      password: "",
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false
+    )
+
+    # Import certificates if available
+    if ENV["APPLE_CERTIFICATE"]
+      import_certificate(
+        certificate_path: "certificate.p12",
+        certificate_password: ENV["APPLE_CERTIFICATE_PASSWORD"],
+        keychain_name: "build.keychain"
+      )
+    end
+
+    # Import provisioning profile if available
+    if ENV["APPLE_PROVISIONING_PROFILE"]
+      install_provisioning_profile(path: "ScheduleWidget.mobileprovision")
+    end
+
+    # Build the app
+    build_app(
+      project: "../ScheduleWidget.xcodeproj",
+      scheme: "ScheduleWidget",
+      configuration: "Release",
+      export_method: "development",
+      export_options: {
+        compileBitcode: false,
+        stripSwiftSymbols: true,
+        teamID: ENV["DEVELOPMENT_TEAM"]
+      },
+      output_directory: "../build/ipa",
+      output_name: "ScheduleWidget.ipa",
+      silent: true,
+      clean: true
+    )
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    # Requires valid distribution certificate and provisioning profile
+    match(
+      type: "appstore",
+      readonly: true,
+      git_url: ENV["MATCH_GIT_URL"],
+      git_branch: "main"
+    )
+
+    build_app(
+      project: "../ScheduleWidget.xcodeproj",
+      scheme: "ScheduleWidget",
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "../build/ipa",
+      output_name: "ScheduleWidget.ipa"
+    )
+
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true,
+      apple_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      api_key: ENV["APP_STORE_CONNECT_API_KEY"]
+    )
+  end
+
+  desc "Sync certificates with match"
+  lane :sync_certs do
+    match(
+      type: "development",
+      git_url: ENV["MATCH_GIT_URL"],
+      git_branch: "main"
+    )
+  end
+end
